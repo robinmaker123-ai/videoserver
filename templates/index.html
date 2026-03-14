@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Server</title>
+  <style>
+    :root {
+      --bg: #0f1720;
+      --panel: rgba(16, 24, 39, 0.85);
+      --panel-strong: rgba(24, 36, 56, 0.96);
+      --border: rgba(148, 163, 184, 0.18);
+      --text: #e5eef8;
+      --muted: #94a3b8;
+      --accent: #f97316;
+      --accent-soft: rgba(249, 115, 22, 0.14);
+      --shadow: 0 24px 60px rgba(2, 8, 23, 0.35);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(249, 115, 22, 0.18), transparent 30%),
+        radial-gradient(circle at bottom right, rgba(56, 189, 248, 0.14), transparent 25%),
+        linear-gradient(160deg, #08111b 0%, #111827 50%, #0f1720 100%);
+      padding: 24px;
+    }
+
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .hero {
+      margin-bottom: 20px;
+      padding: 28px;
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: #fed7aa;
+      font-size: 0.85rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 16px 0 10px;
+      font-size: clamp(2rem, 4vw, 3.4rem);
+      line-height: 1.05;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 720px;
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1.6;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+      gap: 20px;
+    }
+
+    .player-card,
+    .library-card {
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      background: var(--panel-strong);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .section-header {
+      padding: 20px 22px 8px;
+    }
+
+    .section-header h2 {
+      margin: 0;
+      font-size: 1.2rem;
+    }
+
+    .section-header p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .video-shell {
+      padding: 0 22px 22px;
+    }
+
+    .player-stage {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    video {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border-radius: 18px;
+      background: #000;
+      display: block;
+    }
+
+    .video-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .video-title {
+      color: var(--text);
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+
+    .player-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+
+    .seek-button {
+      padding: 11px 16px;
+      border: 1px solid rgba(249, 115, 22, 0.35);
+      border-radius: 999px;
+      background: rgba(249, 115, 22, 0.12);
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+      transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+    }
+
+    .seek-button:hover,
+    .seek-button:focus-visible {
+      transform: translateY(-1px);
+      border-color: rgba(249, 115, 22, 0.7);
+      background: rgba(249, 115, 22, 0.2);
+      outline: none;
+    }
+
+    .player-stage:fullscreen {
+      display: block;
+      width: 100%;
+      height: 100%;
+      background: #000;
+    }
+
+    .player-stage:fullscreen video {
+      width: 100%;
+      height: 100%;
+      max-height: 100vh;
+      object-fit: contain;
+      border-radius: 0;
+    }
+
+    .player-stage:fullscreen .player-actions {
+      position: absolute;
+      left: 24px;
+      right: 24px;
+      bottom: 24px;
+      justify-content: center;
+      z-index: 2;
+    }
+
+    .player-stage:fullscreen .seek-button {
+      background: rgba(15, 23, 32, 0.72);
+      backdrop-filter: blur(10px);
+    }
+
+    .library {
+      padding: 0 14px 14px;
+    }
+
+    .video-button {
+      width: 100%;
+      margin: 10px 0 0;
+      padding: 15px 16px;
+      border: 1px solid transparent;
+      border-radius: 16px;
+      text-align: left;
+      background: rgba(15, 23, 32, 0.85);
+      color: var(--text);
+      cursor: pointer;
+      transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+    }
+
+    .video-button:hover,
+    .video-button:focus-visible {
+      transform: translateY(-1px);
+      border-color: rgba(249, 115, 22, 0.5);
+      background: rgba(30, 41, 59, 0.95);
+      outline: none;
+    }
+
+    .video-button.active {
+      border-color: rgba(249, 115, 22, 0.6);
+      background: linear-gradient(135deg, rgba(249, 115, 22, 0.2), rgba(30, 41, 59, 0.95));
+    }
+
+    .video-name {
+      display: block;
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+
+    .video-size {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .empty-state {
+      padding: 16px 22px 22px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .note {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    @media (max-width: 900px) {
+      body {
+        padding: 16px;
+      }
+
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .hero,
+      .player-card,
+      .library-card {
+        border-radius: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <span class="eyebrow">Local Streaming</span>
+      <h1>Browse and play videos from your machine</h1>
+      <p>
+        Drop supported files into the <code>videos</code> folder and this page will pick them up automatically.
+        For the best browser playback compatibility, MP4 files using H.264 video are the safest choice.
+      </p>
+    </section>
+
+    <main class="layout">
+      <section class="player-card">
+        <div class="section-header">
+          <h2>Player</h2>
+          <p>Pick a title from the library to start watching.</p>
+        </div>
+
+        <div class="video-shell hidden" id="player-shell">
+          <div class="player-stage" id="player-stage">
+            <video id="player" controls controlslist="nofullscreen" preload="metadata"></video>
+            <div class="player-actions">
+              <button class="seek-button" id="rewind-30" type="button">-30s</button>
+              <button class="seek-button" id="forward-30" type="button">+30s</button>
+              <button class="seek-button" id="toggle-fullscreen" type="button">Full screen</button>
+            </div>
+          </div>
+          <div class="video-meta">
+            <span class="video-title" id="video-title"></span>
+            <span id="video-size"></span>
+          </div>
+          <p class="note">
+            Use the custom Full screen button to keep the seek controls visible. If a file does not play, the browser may not support that container or codec even if it appears in the list.
+          </p>
+        </div>
+
+        <p class="empty-state" id="player-empty">
+          No videos found yet. Add files such as <code>.mp4</code>, <code>.mkv</code>, or <code>.webm</code> to the
+          <code>videos</code> folder and refresh the page.
+        </p>
+      </section>
+
+      <aside class="library-card">
+        <div class="section-header">
+          <h2>Library</h2>
+          <p id="library-count">Loading your local library...</p>
+        </div>
+
+        <div class="library" id="library"></div>
+        <p class="empty-state hidden" id="library-empty">
+          The library will appear here as soon as there are supported files in <code>videos</code>.
+        </p>
+      </aside>
+    </main>
+  </div>
+
+  <script>
+    const player = document.getElementById("player");
+    const playerStage = document.getElementById("player-stage");
+    const playerShell = document.getElementById("player-shell");
+    const playerEmpty = document.getElementById("player-empty");
+    const videoTitle = document.getElementById("video-title");
+    const videoSize = document.getElementById("video-size");
+    const rewind30 = document.getElementById("rewind-30");
+    const forward30 = document.getElementById("forward-30");
+    const fullscreenToggle = document.getElementById("toggle-fullscreen");
+    const library = document.getElementById("library");
+    const libraryCount = document.getElementById("library-count");
+    const libraryEmpty = document.getElementById("library-empty");
+
+    let currentButtons = [];
+
+    function setSelectedVideo(video) {
+      playerShell.classList.remove("hidden");
+      playerEmpty.classList.add("hidden");
+      player.src = video.url;
+      player.load();
+      videoTitle.textContent = video.name;
+      videoSize.textContent = `${video.size_mb} MB`;
+
+      currentButtons.forEach((button) => {
+        button.classList.toggle("active", button.dataset.name === video.name);
+      });
+    }
+
+    function seekBy(seconds) {
+      if (!player.src) {
+        return;
+      }
+
+      const duration = Number.isFinite(player.duration) ? player.duration : null;
+      const targetTime = Math.max(0, player.currentTime + seconds);
+      player.currentTime = duration === null ? targetTime : Math.min(targetTime, duration);
+    }
+
+    function updateFullscreenButton() {
+      fullscreenToggle.textContent = document.fullscreenElement === playerStage
+        ? "Exit full screen"
+        : "Full screen";
+    }
+
+    async function togglePlayerFullscreen() {
+      if (!document.fullscreenEnabled || !playerStage.requestFullscreen) {
+        return;
+      }
+
+      if (document.fullscreenElement === playerStage) {
+        await document.exitFullscreen();
+      } else {
+        await playerStage.requestFullscreen();
+      }
+    }
+
+    function renderLibrary(videos) {
+      library.innerHTML = "";
+      currentButtons = [];
+
+      if (!videos.length) {
+        libraryCount.textContent = "0 videos detected.";
+        libraryEmpty.classList.remove("hidden");
+        playerShell.classList.add("hidden");
+        playerEmpty.classList.remove("hidden");
+        return;
+      }
+
+      libraryEmpty.classList.add("hidden");
+      libraryCount.textContent = `${videos.length} video${videos.length === 1 ? "" : "s"} detected.`;
+
+      videos.forEach((video, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "video-button";
+        button.dataset.name = video.name;
+        const name = document.createElement("span");
+        name.className = "video-name";
+        name.textContent = video.name;
+
+        const size = document.createElement("span");
+        size.className = "video-size";
+        size.textContent = `${video.size_mb} MB`;
+
+        button.append(name, size);
+        button.addEventListener("click", () => {
+          setSelectedVideo(video);
+          player.play().catch(() => {
+          });
+        });
+
+        library.appendChild(button);
+        currentButtons.push(button);
+
+        if (index === 0) {
+          setSelectedVideo(video);
+          button.classList.add("active");
+        }
+      });
+    }
+
+    async function loadLibrary() {
+      try {
+        const response = await fetch("/api/videos");
+        if (!response.ok) {
+          throw new Error(`Request failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        renderLibrary(data.videos || []);
+      } catch (error) {
+        library.innerHTML = "";
+        libraryCount.textContent = "Could not load the video library.";
+        libraryEmpty.classList.remove("hidden");
+        playerShell.classList.add("hidden");
+        playerEmpty.classList.remove("hidden");
+      }
+    }
+
+    rewind30.addEventListener("click", () => {
+      seekBy(-30);
+    });
+
+    forward30.addEventListener("click", () => {
+      seekBy(30);
+    });
+
+    fullscreenToggle.addEventListener("click", () => {
+      togglePlayerFullscreen().catch(() => {
+      });
+    });
+
+    document.addEventListener("fullscreenchange", updateFullscreenButton);
+    updateFullscreenButton();
+
+    loadLibrary();
+  </script>
+</body>
+</html>
