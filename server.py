@@ -5,6 +5,8 @@ import mimetypes
 import os
 import re
 import socket
+import subprocess
+import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -13,6 +15,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_PATH = BASE_DIR / "templates" / "index.html"
+CONFIG_PATH = BASE_DIR / "videoserver.json"
 ALLOWED_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi"}
 RANGE_PATTERN = re.compile(r"bytes=(\d*)-(\d*)")
 QUALITY_LABEL_PATTERN = re.compile(r"(?<!\d)(2160p|1440p|1080p|720p|480p|360p|240p|4k)(?!\d)", re.IGNORECASE)
@@ -22,16 +25,79 @@ VARIANT_TOKEN_PATTERN = re.compile(
 )
 CHUNK_SIZE = 1024 * 1024
 UPLOAD_CHUNK_SIZE = 1024 * 1024
+VIDEO_DIR_ENV_OVERRIDE = os.environ.get("VIDEO_DIR")
+
+
+def load_saved_video_dir() -> Path | None:
+    if not CONFIG_PATH.is_file():
+        return None
+
+    try:
+        payload = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    raw_video_dir = payload.get("video_dir")
+    if not isinstance(raw_video_dir, str) or not raw_video_dir.strip():
+        return None
+
+    return Path(raw_video_dir).expanduser().resolve()
 
 
 def get_video_dir() -> Path:
-    raw_video_dir = os.environ.get("VIDEO_DIR")
-    if raw_video_dir:
-        return Path(raw_video_dir).expanduser().resolve()
+    if VIDEO_DIR_ENV_OVERRIDE:
+        return Path(VIDEO_DIR_ENV_OVERRIDE).expanduser().resolve()
+
+    saved_video_dir = load_saved_video_dir()
+    if saved_video_dir is not None:
+        return saved_video_dir
+
     return (BASE_DIR / "videos").resolve()
 
 
 VIDEO_DIR = get_video_dir()
+
+
+def normalize_video_dir(raw_path: str) -> Path:
+    path_text = raw_path.strip()
+    if not path_text:
+        raise ValueError("Enter a folder path like D:\\Movies")
+
+    video_dir = Path(path_text).expanduser().resolve()
+    video_dir.mkdir(parents=True, exist_ok=True)
+
+    if not video_dir.is_dir():
+        raise NotADirectoryError(f"Not a folder: {video_dir}")
+
+    return video_dir
+
+
+def save_video_dir(video_dir: Path) -> None:
+    CONFIG_PATH.write_text(json.dumps({"video_dir": str(video_dir)}, indent=2), encoding="utf-8")
+
+
+def set_video_dir(raw_path: str, persist: bool = True) -> Path:
+    global VIDEO_DIR
+
+    video_dir = normalize_video_dir(raw_path)
+    VIDEO_DIR = video_dir
+
+    if persist:
+        save_video_dir(video_dir)
+
+    return video_dir
+
+
+def open_directory(path: Path) -> None:
+    if os.name == "nt":
+        os.startfile(str(path))  # type: ignore[attr-defined]
+        return
+
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)])
+        return
+
+    subprocess.Popen(["xdg-open", str(path)])
 
 
 def discover_ipv4_addresses() -> list[str]:
@@ -151,6 +217,14 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
 
+        if parsed.path == "/api/video-dir":
+            self.handle_set_video_dir()
+            return
+
+        if parsed.path == "/api/open-video-dir":
+            self.handle_open_video_dir()
+            return
+
         if parsed.path == "/api/upload":
             self.handle_upload()
             return
@@ -198,6 +272,80 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def read_json_body(self) -> dict[str, object] | None:
+        content_length_header = self.headers.get("Content-Length")
+        if content_length_header is None:
+            self.send_json(HTTPStatus.LENGTH_REQUIRED, {"error": "Missing Content-Length"})
+            return None
+
+        try:
+            content_length = int(content_length_header)
+        except ValueError:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid Content-Length"})
+            return None
+
+        if content_length < 0:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid Content-Length"})
+            return None
+
+        try:
+            body = self.rfile.read(content_length)
+            payload = json.loads(body.decode("utf-8")) if body else {}
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid JSON body"})
+            return None
+
+        if not isinstance(payload, dict):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "JSON body must be an object"})
+            return None
+
+        return payload
+
+    def handle_set_video_dir(self) -> None:
+        payload = self.read_json_body()
+        if payload is None:
+            return
+
+        raw_video_dir = payload.get("video_dir")
+        if not isinstance(raw_video_dir, str) or not raw_video_dir.strip():
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Enter a folder path like D:\\Movies"})
+            return
+
+        persist = VIDEO_DIR_ENV_OVERRIDE is None
+
+        try:
+            video_dir = set_video_dir(raw_video_dir, persist=persist)
+        except (OSError, ValueError) as exc:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return
+
+        self.send_json(
+            HTTPStatus.OK,
+            {
+                "updated": True,
+                "video_dir": str(video_dir),
+                "persisted": persist,
+                "env_override": bool(VIDEO_DIR_ENV_OVERRIDE),
+            },
+        )
+
+    def handle_open_video_dir(self) -> None:
+        VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+
+        try:
+            open_directory(VIDEO_DIR)
+        except OSError as exc:
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Could not open folder: {exc}"})
+            return
+
+        self.send_json(
+            HTTPStatus.OK,
+            {
+                "opened": True,
+                "video_dir": str(VIDEO_DIR),
+            },
+        )
 
     def handle_upload(self) -> None:
         filename = normalize_filename(self.headers.get("X-Filename", ""))

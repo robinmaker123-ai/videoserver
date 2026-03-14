@@ -93,6 +93,55 @@
       align-items: center;
     }
 
+    .quick-path {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) auto auto;
+      gap: 12px;
+      align-items: end;
+    }
+
+    .path-field {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .path-label {
+      color: #fed7aa;
+      font-size: 0.8rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .path-input {
+      width: 100%;
+      min-height: 46px;
+      padding: 12px 15px;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: 16px;
+      background: rgba(15, 23, 32, 0.72);
+      color: var(--text);
+      font: inherit;
+    }
+
+    .path-input:focus {
+      outline: none;
+      border-color: rgba(249, 115, 22, 0.5);
+      box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.14);
+    }
+
+    .secondary-button {
+      border-color: rgba(148, 163, 184, 0.22);
+      background: rgba(15, 23, 32, 0.72);
+    }
+
+    .secondary-button:hover,
+    .secondary-button:focus-visible {
+      border-color: rgba(148, 163, 184, 0.4);
+      background: rgba(30, 41, 59, 0.92);
+    }
+
     .upload-picker {
       display: inline-flex;
       align-items: center;
@@ -132,6 +181,22 @@
       font-size: 0.95rem;
       line-height: 1.5;
       overflow-wrap: anywhere;
+    }
+
+    .path-status {
+      grid-column: 1 / -1;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+
+    .path-status[data-tone="success"] {
+      color: #c7f9cc;
+    }
+
+    .path-status[data-tone="error"] {
+      color: #fecaca;
     }
 
     .layout {
@@ -850,13 +915,19 @@
         align-items: stretch;
       }
 
+      .quick-path {
+        grid-template-columns: 1fr;
+      }
+
       .upload-picker,
-      .upload-button {
+      .upload-button,
+      .secondary-button {
         width: 100%;
         justify-content: center;
       }
 
-      .upload-status {
+      .upload-status,
+      .path-status {
         width: 100%;
       }
 
@@ -989,8 +1060,8 @@
       <span class="eyebrow">Local Streaming</span>
       <h1>Browse and play videos from your machine</h1>
       <p>
-        Drop supported files into the <code>videos</code> folder and this page will pick them up automatically.
-        For the best browser playback compatibility, MP4 files using H.264 video are the safest choice.
+        Large videos upload slowly in the browser, so you can either choose files here or point the library at a
+        local folder path below. For the best browser playback compatibility, MP4 files using H.264 video are the safest choice.
       </p>
       <div class="upload-panel">
         <label class="upload-picker" for="upload-input">
@@ -999,6 +1070,22 @@
         </label>
         <button class="seek-button upload-button" id="upload-button" type="button" disabled>Upload selected</button>
         <span class="upload-status" id="upload-status">No files selected.</span>
+      </div>
+      <div class="quick-path">
+        <label class="path-field" for="library-path-input">
+          <span class="path-label">Fast Folder Path</span>
+          <input
+            class="path-input"
+            id="library-path-input"
+            type="text"
+            placeholder="D:\\Movies or E:\\Videos"
+            autocomplete="off"
+            spellcheck="false"
+          >
+        </label>
+        <button class="seek-button" id="set-library-path" type="button">Use folder path</button>
+        <button class="seek-button secondary-button" id="open-library-folder" type="button">Open current folder</button>
+        <span class="path-status" id="path-status">Tip: set a folder once to avoid slow browser uploads for large files.</span>
       </div>
     </section>
 
@@ -1157,10 +1244,15 @@
     const uploadInput = document.getElementById("upload-input");
     const uploadButton = document.getElementById("upload-button");
     const uploadStatus = document.getElementById("upload-status");
+    const libraryPathInput = document.getElementById("library-path-input");
+    const setLibraryPathButton = document.getElementById("set-library-path");
+    const openLibraryFolderButton = document.getElementById("open-library-folder");
+    const pathStatus = document.getElementById("path-status");
 
     let currentButtons = [];
     let selectedFiles = [];
     let libraryVideos = [];
+    let currentVideoDir = "";
     let currentVideoName = "";
     let currentVideo = null;
     let controlsHideTimeout = null;
@@ -1548,9 +1640,14 @@
 
     function renderLibrary(videos, videoDir) {
       libraryVideos = videos;
+      currentVideoDir = videoDir || "";
       library.innerHTML = "";
       currentButtons = [];
-      sourcePath.textContent = videoDir ? `Source folder: ${videoDir}` : "";
+      sourcePath.textContent = currentVideoDir ? `Source folder: ${currentVideoDir}` : "";
+      if (document.activeElement !== libraryPathInput) {
+        libraryPathInput.value = currentVideoDir;
+      }
+      updateLibraryPathControls();
 
       if (!videos.length) {
         libraryCount.textContent = "0 videos detected.";
@@ -1610,9 +1707,14 @@
         renderLibrary(data.videos || [], data.video_dir || "");
       } catch (error) {
         libraryVideos = [];
+        currentVideoDir = "";
         library.innerHTML = "";
         libraryCount.textContent = "Could not load the video library.";
         sourcePath.textContent = "";
+        if (document.activeElement !== libraryPathInput) {
+          libraryPathInput.value = "";
+        }
+        updateLibraryPathControls();
         libraryEmpty.classList.remove("hidden");
         playerShell.classList.add("hidden");
         playerEmpty.classList.remove("hidden");
@@ -1717,6 +1819,17 @@
       uploadButton.disabled = !selectedFiles.length;
     }
 
+    function updatePathStatus(message, tone = "muted") {
+      pathStatus.textContent = message;
+      pathStatus.dataset.tone = tone;
+    }
+
+    function updateLibraryPathControls() {
+      const hasDraftPath = Boolean(libraryPathInput.value.trim());
+      setLibraryPathButton.disabled = libraryPathInput.disabled || !hasDraftPath;
+      openLibraryFolderButton.disabled = Boolean(libraryPathInput.disabled) || !currentVideoDir;
+    }
+
     function uploadFile(file) {
       return new Promise((resolve, reject) => {
         const request = new XMLHttpRequest();
@@ -1775,6 +1888,71 @@
       } finally {
         uploadInput.disabled = false;
         uploadButton.disabled = !selectedFiles.length;
+      }
+    }
+
+    async function setLibraryPath() {
+      const nextPath = libraryPathInput.value.trim();
+      if (!nextPath) {
+        updatePathStatus("Enter a folder path like D:\\Movies.", "error");
+        updateLibraryPathControls();
+        return;
+      }
+
+      libraryPathInput.disabled = true;
+      setLibraryPathButton.disabled = true;
+      openLibraryFolderButton.disabled = true;
+      updatePathStatus(`Switching library to ${nextPath}...`);
+
+      try {
+        const response = await fetch("/api/video-dir", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ video_dir: nextPath }),
+        });
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(payload.error || `Could not update folder path (${response.status}).`);
+        }
+
+        await loadLibrary();
+        if (payload.env_override) {
+          updatePathStatus(`Using ${payload.video_dir} for now. Restart may still use the VIDEO_DIR env path.`, "success");
+        } else {
+          updatePathStatus(`Library path updated to ${payload.video_dir}.`, "success");
+        }
+      } catch (error) {
+        updatePathStatus(error instanceof Error ? error.message : "Could not update folder path.", "error");
+      } finally {
+        libraryPathInput.disabled = false;
+        updateLibraryPathControls();
+      }
+    }
+
+    async function openCurrentLibraryFolder() {
+      if (!currentVideoDir) {
+        updatePathStatus("Set a library folder first.", "error");
+        return;
+      }
+
+      openLibraryFolderButton.disabled = true;
+
+      try {
+        const response = await fetch("/api/open-video-dir", { method: "POST" });
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(payload.error || `Could not open folder (${response.status}).`);
+        }
+
+        updatePathStatus(`Opened ${payload.video_dir} on the server machine.`, "success");
+      } catch (error) {
+        updatePathStatus(error instanceof Error ? error.message : "Could not open the current folder.", "error");
+      } finally {
+        updateLibraryPathControls();
       }
     }
 
@@ -2009,6 +2187,29 @@
       });
     });
 
+    libraryPathInput.addEventListener("input", () => {
+      updatePathStatus("Tip: set a folder once to avoid slow browser uploads for large files.");
+      updateLibraryPathControls();
+    });
+
+    libraryPathInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        setLibraryPath().catch(() => {
+        });
+      }
+    });
+
+    setLibraryPathButton.addEventListener("click", () => {
+      setLibraryPath().catch(() => {
+      });
+    });
+
+    openLibraryFolderButton.addEventListener("click", () => {
+      openCurrentLibraryFolder().catch(() => {
+      });
+    });
+
     const syncFullscreenUI = () => {
       updateFullscreenButton();
       if (!isPlayerFullscreen()) {
@@ -2033,6 +2234,8 @@
     updateQualityMenu();
     updateFullscreenButton();
     updateUploadState("No files selected.");
+    updatePathStatus("Tip: set a folder once to avoid slow browser uploads for large files.");
+    updateLibraryPathControls();
 
     loadLibrary();
   </script>
