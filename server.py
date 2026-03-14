@@ -4,6 +4,7 @@ import json
 import mimetypes
 import os
 import re
+import socket
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -26,6 +27,35 @@ def get_video_dir() -> Path:
 
 
 VIDEO_DIR = get_video_dir()
+
+
+def discover_ipv4_addresses() -> list[str]:
+    addresses: set[str] = set()
+
+    try:
+        hostname = socket.gethostname()
+        for _, _, _, _, sockaddr in socket.getaddrinfo(
+            hostname,
+            None,
+            family=socket.AF_INET,
+            type=socket.SOCK_STREAM,
+        ):
+            ip_address = sockaddr[0]
+            if not ip_address.startswith(("127.", "169.254.")):
+                addresses.add(ip_address)
+    except socket.gaierror:
+        pass
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe_socket:
+            probe_socket.connect(("8.8.8.8", 80))
+            ip_address = probe_socket.getsockname()[0]
+            if not ip_address.startswith(("127.", "169.254.")):
+                addresses.add(ip_address)
+    except OSError:
+        pass
+
+    return sorted(addresses)
 
 
 def normalize_filename(raw_name: str) -> str | None:
@@ -268,7 +298,19 @@ def run_server() -> None:
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "5000"))
     httpd = ThreadingHTTPServer((host, port), VideoRequestHandler)
-    print(f"Serving videos from {VIDEO_DIR} at http://127.0.0.1:{port}")
+    print(f"Serving videos from {VIDEO_DIR}")
+
+    if host in {"0.0.0.0", "::"}:
+        print(f"Local:      http://127.0.0.1:{port}")
+        lan_addresses = discover_ipv4_addresses()
+        if lan_addresses:
+            for lan_address in lan_addresses:
+                print(f"Mobile/LAN: http://{lan_address}:{port}")
+        else:
+            print("Mobile/LAN: No IPv4 LAN address detected")
+    else:
+        print(f"Open:       http://{host}:{port}")
+
     httpd.serve_forever()
 
 
