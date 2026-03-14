@@ -8,13 +8,18 @@ import socket
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_PATH = BASE_DIR / "templates" / "index.html"
 ALLOWED_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi"}
 RANGE_PATTERN = re.compile(r"bytes=(\d*)-(\d*)")
+QUALITY_LABEL_PATTERN = re.compile(r"(?<!\d)(2160p|1440p|1080p|720p|480p|360p|240p|4k)(?!\d)", re.IGNORECASE)
+VARIANT_TOKEN_PATTERN = re.compile(
+    r"\b(?:2160p|1440p|1080p|720p|480p|360p|240p|4k|web[\s._-]?dl|web[\s._-]?rip|bluray|brrip|hdrip|hdtc|hdts|hdcam|hevc|x264|x265|h264|h265|aac|dd5[\s._-]?1|esub|multi[\s._-]?audio|dual[\s._-]?audio)\b",
+    re.IGNORECASE,
+)
 CHUNK_SIZE = 1024 * 1024
 UPLOAD_CHUNK_SIZE = 1024 * 1024
 
@@ -65,6 +70,20 @@ def normalize_filename(raw_name: str) -> str | None:
     return filename
 
 
+def detect_quality_label(file_name: str) -> str:
+    match = QUALITY_LABEL_PATTERN.search(Path(file_name).stem)
+    if match:
+        return match.group(1).lower().replace("k", "K")
+    return "Original"
+
+
+def build_variant_key(file_name: str) -> str:
+    normalized_stem = re.sub(r"[._-]+", " ", Path(file_name).stem.lower())
+    normalized_stem = VARIANT_TOKEN_PATTERN.sub(" ", normalized_stem)
+    normalized_stem = re.sub(r"\s+", " ", normalized_stem).strip()
+    return normalized_stem or Path(file_name).stem.lower()
+
+
 def list_videos() -> list[dict[str, str]]:
     VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     videos = []
@@ -80,6 +99,9 @@ def list_videos() -> list[dict[str, str]]:
                 "size_mb": f"{file_path.stat().st_size / (1024 * 1024):.1f}",
                 "mime_type": mime_type or "application/octet-stream",
                 "url": f"/videos/{quote(file_path.name)}",
+                "download_url": f"/videos/{quote(file_path.name)}?download=1",
+                "quality_label": detect_quality_label(file_path.name),
+                "variant_key": build_variant_key(file_path.name),
             }
         )
 
@@ -120,7 +142,7 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path.startswith("/videos/"):
-            self.serve_video(parsed.path.removeprefix("/videos/"))
+            self.serve_video(parsed.path.removeprefix("/videos/"), parsed.query)
             return
 
         self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
@@ -223,12 +245,14 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
             },
         )
 
-    def serve_video(self, raw_name: str) -> None:
+    def serve_video(self, raw_name: str, query_string: str = "") -> None:
         file_path = resolve_video_path(raw_name)
         if file_path is None:
             self.send_error(HTTPStatus.NOT_FOUND, "Video not found")
             return
 
+        query_params = parse_qs(query_string)
+        should_download = query_params.get("download", ["0"])[0].lower() in {"1", "true", "yes"}
         file_size = file_path.stat().st_size
         content_type, _ = mimetypes.guess_type(file_path.name)
         content_type = content_type or "application/octet-stream"
@@ -268,6 +292,8 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
             self.send_header("Content-Length", str(length))
+            if should_download:
+                self.send_header("Content-Disposition", f'attachment; filename="{file_path.name}"')
             self.end_headers()
             self.stream_file(file_path, start, length)
             return
@@ -276,6 +302,8 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(file_size))
+        if should_download:
+            self.send_header("Content-Disposition", f'attachment; filename="{file_path.name}"')
         self.end_headers()
         self.stream_file(file_path, 0, file_size)
 
