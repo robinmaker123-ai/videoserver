@@ -1915,7 +1915,10 @@
         const payload = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          throw new Error(payload.error || `Could not update folder path (${response.status}).`);
+          const fallbackMessage = response.status === 404
+            ? "Folder path feature needs the latest backend. Run `git pull` and restart with `py server.py`."
+            : `Could not update folder path (${response.status}).`;
+          throw new Error(payload.error || fallbackMessage);
         }
 
         await loadLibrary();
@@ -1945,7 +1948,10 @@
         const payload = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          throw new Error(payload.error || `Could not open folder (${response.status}).`);
+          const fallbackMessage = response.status === 404
+            ? "Open folder feature needs the latest backend. Run `git pull` and restart with `py server.py`."
+            : `Could not open folder (${response.status}).`;
+          throw new Error(payload.error || fallbackMessage);
         }
 
         updatePathStatus(`Opened ${payload.video_dir} on the server machine.`, "success");
