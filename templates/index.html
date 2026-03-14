@@ -1261,6 +1261,7 @@
     let usingNativeFullscreen = false;
     let pendingResumeTime = null;
     let pendingAutoplay = false;
+    const backendStartHint = "Start this app with `py server.py`. Static servers like `python -m http.server` will not support library actions.";
     const prefersTouchLayout = window.matchMedia("(pointer: coarse)").matches
       || window.matchMedia("(hover: none)").matches;
     const controlsHideDelay = prefersTouchLayout ? 3200 : 1800;
@@ -1700,6 +1701,9 @@
       try {
         const response = await fetch("/api/videos");
         if (!response.ok) {
+          if (response.status === 404) {
+            throw new Error(backendStartHint);
+          }
           throw new Error(`Request failed: ${response.status}`);
         }
 
@@ -1709,13 +1713,15 @@
         libraryVideos = [];
         currentVideoDir = "";
         library.innerHTML = "";
-        libraryCount.textContent = "Could not load the video library.";
+        const fallbackMessage = error instanceof Error ? error.message : "Could not load the video library.";
+        libraryCount.textContent = fallbackMessage;
         sourcePath.textContent = "";
         if (document.activeElement !== libraryPathInput) {
           libraryPathInput.value = "";
         }
         updateLibraryPathControls();
         libraryEmpty.classList.remove("hidden");
+        libraryEmpty.textContent = fallbackMessage;
         playerShell.classList.add("hidden");
         playerEmpty.classList.remove("hidden");
         resetPlayerUI();
@@ -1916,7 +1922,7 @@
 
         if (!response.ok) {
           const fallbackMessage = response.status === 404
-            ? "Folder path feature needs the latest backend. Run `git pull` and restart with `py server.py`."
+            ? backendStartHint
             : `Could not update folder path (${response.status}).`;
           throw new Error(payload.error || fallbackMessage);
         }
@@ -1949,7 +1955,7 @@
 
         if (!response.ok) {
           const fallbackMessage = response.status === 404
-            ? "Open folder feature needs the latest backend. Run `git pull` and restart with `py server.py`."
+            ? backendStartHint
             : `Could not open folder (${response.status}).`;
           throw new Error(payload.error || fallbackMessage);
         }
