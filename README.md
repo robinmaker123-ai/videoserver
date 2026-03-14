@@ -10,9 +10,18 @@ python server.py
 
 The app starts on `http://127.0.0.1:5000` by default.
 
+To stream videos from another folder on your machine:
+
+```powershell
+$env:VIDEO_DIR="D:\Movies"
+python server.py
+```
+
 ## Add videos
 
-Place supported files in the `videos/` folder and refresh the page.
+This GitHub repo contains only the app code. It does not include your actual media files.
+
+Place supported files in the local `videos/` folder, or point `VIDEO_DIR` to your existing movie folder, then refresh the page.
 
 Supported extensions:
 

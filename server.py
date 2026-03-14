@@ -11,15 +11,24 @@ from urllib.parse import quote, unquote, urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent
-VIDEO_DIR = BASE_DIR / "videos"
 TEMPLATE_PATH = BASE_DIR / "templates" / "index.html"
 ALLOWED_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi"}
 RANGE_PATTERN = re.compile(r"bytes=(\d*)-(\d*)")
 CHUNK_SIZE = 64 * 1024
 
 
+def get_video_dir() -> Path:
+    raw_video_dir = os.environ.get("VIDEO_DIR")
+    if raw_video_dir:
+        return Path(raw_video_dir).expanduser().resolve()
+    return (BASE_DIR / "videos").resolve()
+
+
+VIDEO_DIR = get_video_dir()
+
+
 def list_videos() -> list[dict[str, str]]:
-    VIDEO_DIR.mkdir(exist_ok=True)
+    VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     videos = []
 
     for file_path in sorted(VIDEO_DIR.iterdir(), key=lambda path: path.name.lower()):
@@ -87,7 +96,12 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def serve_video_library(self) -> None:
-        payload = json.dumps({"videos": list_videos()}).encode("utf-8")
+        payload = json.dumps(
+            {
+                "videos": list_videos(),
+                "video_dir": str(VIDEO_DIR),
+            }
+        ).encode("utf-8")
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
@@ -166,7 +180,7 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
 
 
 def run_server() -> None:
-    VIDEO_DIR.mkdir(exist_ok=True)
+    VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "5000"))
     httpd = ThreadingHTTPServer((host, port), VideoRequestHandler)
