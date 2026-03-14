@@ -30,7 +30,17 @@
         radial-gradient(circle at top left, rgba(249, 115, 22, 0.18), transparent 30%),
         radial-gradient(circle at bottom right, rgba(56, 189, 248, 0.14), transparent 25%),
         linear-gradient(160deg, #08111b 0%, #111827 50%, #0f1720 100%);
-      padding: 24px;
+      padding:
+        calc(16px + env(safe-area-inset-top, 0px))
+        calc(16px + env(safe-area-inset-right, 0px))
+        calc(24px + env(safe-area-inset-bottom, 0px))
+        calc(16px + env(safe-area-inset-left, 0px));
+    }
+
+    button,
+    input,
+    select {
+      touch-action: manipulation;
     }
 
     .page {
@@ -208,6 +218,7 @@
       justify-content: space-between;
       align-items: center;
       gap: 12px;
+      flex-wrap: wrap;
       padding: 16px;
       background: linear-gradient(180deg, rgba(2, 6, 23, 0.72), transparent);
       transition: opacity 0.22s ease, transform 0.22s ease;
@@ -482,6 +493,11 @@
       padding-right: 34px;
     }
 
+    .player-stage[data-native-fullscreen="true"] .player-overlay {
+      opacity: 0;
+      pointer-events: none;
+    }
+
     .player-stage.controls-hidden .player-topbar,
     .player-stage.controls-hidden .controls-panel {
       opacity: 0;
@@ -530,12 +546,39 @@
       outline: none;
     }
 
+    .player-stage:fullscreen,
     .player-stage:fullscreen video {
+      border-radius: 0;
+    }
+
+    .player-stage:fullscreen,
+    .player-stage:-webkit-full-screen {
+      width: 100vw;
+      height: 100dvh;
+      max-width: none;
+      max-height: none;
+      aspect-ratio: auto;
+      border-radius: 0;
+      background: #000;
+    }
+
+    .player-stage:fullscreen video,
+    .player-stage:-webkit-full-screen video {
       width: 100%;
       height: 100%;
       max-height: 100vh;
       object-fit: contain;
       border-radius: 0;
+    }
+
+    .player-stage:fullscreen .player-topbar,
+    .player-stage:-webkit-full-screen .player-topbar {
+      padding-top: calc(16px + env(safe-area-inset-top, 0px));
+    }
+
+    .player-stage:fullscreen .controls-panel,
+    .player-stage:-webkit-full-screen .controls-panel {
+      padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
     }
 
     .library {
@@ -606,10 +649,6 @@
     }
 
     @media (max-width: 900px) {
-      body {
-        padding: 16px;
-      }
-
       .layout {
         grid-template-columns: 1fr;
       }
@@ -640,6 +679,10 @@
     }
 
     @media (max-width: 640px) {
+      body {
+        min-height: 100dvh;
+      }
+
       .hero,
       .video-shell,
       .section-header {
@@ -647,9 +690,41 @@
         padding-right: 16px;
       }
 
+      .hero {
+        padding-top: 22px;
+        padding-bottom: 22px;
+      }
+
+      h1 {
+        font-size: clamp(1.8rem, 9vw, 2.7rem);
+      }
+
+      .upload-panel {
+        align-items: stretch;
+      }
+
+      .upload-picker,
+      .upload-button {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .upload-status {
+        width: 100%;
+      }
+
+      .player-stage {
+        border-radius: 16px;
+      }
+
       .controls-panel,
       .player-topbar {
         padding: 12px;
+      }
+
+      .player-chip {
+        min-height: 32px;
+        font-size: 0.82rem;
       }
 
       .big-play-button {
@@ -662,6 +737,91 @@
       .speed-select {
         min-height: 40px;
         padding: 9px 12px;
+      }
+
+      .controls-group {
+        width: 100%;
+      }
+
+      .controls-group:first-child {
+        justify-content: space-between;
+      }
+
+      .controls-group:first-child .control-button {
+        flex: 1 1 calc(33.333% - 8px);
+        min-width: 0;
+      }
+
+      .time-readout {
+        width: 100%;
+        justify-content: space-between;
+        padding: 2px 2px 0;
+      }
+
+      .controls-group-end {
+        gap: 8px;
+      }
+
+      .volume-wrap {
+        flex: 1 1 100%;
+        width: 100%;
+        padding-right: 0;
+      }
+
+      .speed-select,
+      #toggle-fullscreen {
+        flex: 1 1 calc(50% - 4px);
+        min-width: 0;
+      }
+
+      .video-meta {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+      }
+
+      .source-path,
+      .library {
+        margin-left: 0;
+        margin-right: 0;
+      }
+
+      .library {
+        padding: 0 10px 10px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .page {
+        max-width: 100%;
+      }
+
+      .player-center {
+        padding: 18px;
+      }
+
+      .timeline-wrap {
+        height: 22px;
+      }
+
+      .timeline-slider::-webkit-slider-thumb,
+      .volume-slider::-webkit-slider-thumb {
+        width: 16px;
+        height: 16px;
+      }
+
+      .timeline-slider::-moz-range-thumb,
+      .volume-slider::-moz-range-thumb {
+        width: 16px;
+        height: 16px;
+      }
+
+      .video-button {
+        padding: 14px;
+      }
+
+      .note {
+        font-size: 0.86rem;
       }
     }
   </style>
@@ -817,6 +977,10 @@
     let controlsHideTimeout = null;
     let isScrubbing = false;
     let lastVolume = 1;
+    let usingNativeFullscreen = false;
+    const prefersTouchLayout = window.matchMedia("(pointer: coarse)").matches
+      || window.matchMedia("(hover: none)").matches;
+    const controlsHideDelay = prefersTouchLayout ? 3200 : 1800;
 
     function formatTime(totalSeconds) {
       if (!Number.isFinite(totalSeconds) || totalSeconds < 0) {
@@ -882,8 +1046,45 @@
       playerStage.dataset.state = player.ended ? "ended" : (isPlaying ? "playing" : "paused");
     }
 
+    function isPlayerFullscreen() {
+      return document.fullscreenElement === playerStage
+        || document.webkitFullscreenElement === playerStage
+        || document.msFullscreenElement === playerStage
+        || player.webkitDisplayingFullscreen === true
+        || usingNativeFullscreen;
+    }
+
+    function setNativeFullscreenState(isActive) {
+      usingNativeFullscreen = isActive;
+      playerStage.dataset.nativeFullscreen = isActive ? "true" : "false";
+      player.controls = isActive;
+      updateFullscreenButton();
+    }
+
+    async function tryLockLandscape() {
+      if (!screen.orientation || !screen.orientation.lock || !prefersTouchLayout) {
+        return;
+      }
+
+      try {
+        await screen.orientation.lock("landscape");
+      } catch (error) {
+      }
+    }
+
+    function tryUnlockOrientation() {
+      if (!screen.orientation || !screen.orientation.unlock) {
+        return;
+      }
+
+      try {
+        screen.orientation.unlock();
+      } catch (error) {
+      }
+    }
+
     function updateFullscreenButton() {
-      fullscreenToggle.textContent = document.fullscreenElement === playerStage
+      fullscreenToggle.textContent = isPlayerFullscreen()
         ? "Exit full screen"
         : "Full screen";
     }
@@ -902,7 +1103,7 @@
 
       controlsHideTimeout = window.setTimeout(() => {
         playerStage.classList.add("controls-hidden");
-      }, 1800);
+      }, controlsHideDelay);
     }
 
     function resetPlayerUI() {
@@ -970,15 +1171,75 @@
       scheduleControlsHide();
     }
 
+    async function enterElementFullscreen() {
+      if (playerStage.requestFullscreen) {
+        await playerStage.requestFullscreen();
+        return true;
+      }
+
+      if (playerStage.webkitRequestFullscreen) {
+        playerStage.webkitRequestFullscreen();
+        return true;
+      }
+
+      if (playerStage.msRequestFullscreen) {
+        playerStage.msRequestFullscreen();
+        return true;
+      }
+
+      return false;
+    }
+
+    async function exitElementFullscreen() {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        await document.exitFullscreen();
+        return true;
+      }
+
+      if (document.webkitFullscreenElement && document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+        return true;
+      }
+
+      if (document.msFullscreenElement && document.msExitFullscreen) {
+        document.msExitFullscreen();
+        return true;
+      }
+
+      return false;
+    }
+
     async function togglePlayerFullscreen() {
-      if (!document.fullscreenEnabled || !playerStage.requestFullscreen) {
+      if (!player.src) {
         return;
       }
 
-      if (document.fullscreenElement === playerStage) {
-        await document.exitFullscreen();
-      } else {
-        await playerStage.requestFullscreen();
+      if (isPlayerFullscreen()) {
+        const exitedElementFullscreen = await exitElementFullscreen();
+        if (!exitedElementFullscreen && (player.webkitDisplayingFullscreen || usingNativeFullscreen)) {
+          if (player.webkitExitFullscreen) {
+            player.webkitExitFullscreen();
+          }
+          setNativeFullscreenState(false);
+        }
+        tryUnlockOrientation();
+        return;
+      }
+
+      const enteredElementFullscreen = await enterElementFullscreen();
+      if (enteredElementFullscreen) {
+        await tryLockLandscape();
+        return;
+      }
+
+      if (player.webkitEnterFullscreen) {
+        setNativeFullscreenState(true);
+        try {
+          player.webkitEnterFullscreen();
+          await tryLockLandscape();
+        } catch (error) {
+          setNativeFullscreenState(false);
+        }
       }
     }
 
@@ -1324,6 +1585,16 @@
     });
     player.addEventListener("ratechange", updatePlaybackLabels);
     player.addEventListener("volumechange", updateVolumeUI);
+    player.addEventListener("webkitbeginfullscreen", () => {
+      setNativeFullscreenState(true);
+      showControls();
+    });
+    player.addEventListener("webkitendfullscreen", () => {
+      setNativeFullscreenState(false);
+      tryUnlockOrientation();
+      showControls();
+      scheduleControlsHide();
+    });
 
     playerStage.addEventListener("mousemove", () => {
       showControls();
@@ -1331,7 +1602,7 @@
     });
 
     playerStage.addEventListener("mouseleave", () => {
-      if (!player.paused && !player.ended) {
+      if (!prefersTouchLayout && !player.paused && !player.ended) {
         playerStage.classList.add("controls-hidden");
       }
     });
@@ -1361,13 +1632,23 @@
       });
     });
 
-    document.addEventListener("fullscreenchange", () => {
+    const syncFullscreenUI = () => {
       updateFullscreenButton();
+      if (!isPlayerFullscreen()) {
+        setNativeFullscreenState(false);
+        tryUnlockOrientation();
+      }
       showControls();
       scheduleControlsHide();
-    });
+    };
+
+    document.addEventListener("fullscreenchange", syncFullscreenUI);
+    document.addEventListener("webkitfullscreenchange", syncFullscreenUI);
+    document.addEventListener("msfullscreenchange", syncFullscreenUI);
     document.addEventListener("keydown", handleKeyboardShortcuts);
 
+    player.controls = false;
+    playerStage.dataset.nativeFullscreen = "false";
     setRangeFill(timeline, 0);
     setRangeFill(volumeSlider, 100);
     updateVolumeUI();
