@@ -611,6 +611,24 @@
       background: rgba(249, 115, 22, 0.14);
     }
 
+    .menu-item:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .menu-item.danger {
+      color: #fecaca;
+      border-color: rgba(239, 68, 68, 0.22);
+      background: rgba(127, 29, 29, 0.22);
+    }
+
+    .menu-item.danger:hover,
+    .menu-item.danger:focus-visible {
+      border-color: rgba(248, 113, 113, 0.45);
+      background: rgba(127, 29, 29, 0.4);
+    }
+
     .quality-option small,
     .menu-hint {
       color: var(--muted);
@@ -1021,6 +1039,7 @@
                     </div>
 
                     <button class="menu-item" id="download-video" type="button">Download video</button>
+                    <button class="menu-item danger" id="delete-video" type="button">Delete video</button>
                   </div>
                 </div>
               </div>
@@ -1117,6 +1136,7 @@
     const qualityOptions = document.getElementById("quality-options");
     const qualityHint = document.getElementById("quality-hint");
     const downloadVideo = document.getElementById("download-video");
+    const deleteVideo = document.getElementById("delete-video");
     const videoTapTarget = document.getElementById("video-tap-target");
     const centerPlay = document.getElementById("center-play");
     const playToggle = document.getElementById("play-toggle");
@@ -1236,6 +1256,7 @@
         qualityChip.textContent = "Quality";
         qualityHint.textContent = "Select a video to see quality options.";
         downloadVideo.disabled = true;
+        deleteVideo.disabled = true;
         menuToggle.disabled = true;
         closePlayerMenu();
         return;
@@ -1245,6 +1266,7 @@
       qualityChip.textContent = currentVideo.quality_label || "Original";
       qualityHint.textContent = "No alternate quality found for this video.";
       downloadVideo.disabled = false;
+      deleteVideo.disabled = false;
 
       const variants = getCurrentVariants();
       variants.forEach((variant) => {
@@ -1816,6 +1838,59 @@
 
       window.location.href = currentVideo.download_url || currentVideo.url;
       closePlayerMenu();
+    });
+
+    deleteVideo.addEventListener("click", async () => {
+      if (!currentVideo) {
+        return;
+      }
+
+      const videoToDelete = currentVideo;
+      const shouldDelete = window.confirm(`Delete "${videoToDelete.name}" from this device?`);
+      if (!shouldDelete) {
+        return;
+      }
+
+      deleteVideo.disabled = true;
+      downloadVideo.disabled = true;
+      closePlayerMenu();
+
+      player.pause();
+      player.removeAttribute("src");
+      player.load();
+      pendingResumeTime = null;
+      pendingAutoplay = false;
+
+      let deleteSucceeded = false;
+
+      try {
+        const response = await fetch(videoToDelete.delete_url, { method: "DELETE" });
+        let payload = null;
+
+        try {
+          payload = await response.json();
+        } catch (error) {
+        }
+
+        if (!response.ok) {
+          const message = payload && payload.error
+            ? payload.error
+            : `Could not delete the video (${response.status}).`;
+          throw new Error(message);
+        }
+
+        deleteSucceeded = true;
+        currentVideoName = "";
+        await loadLibrary();
+      } catch (error) {
+        if (!deleteSucceeded && (videoToDelete.name === currentVideoName || !player.getAttribute("src"))) {
+          setSelectedVideo(videoToDelete);
+        }
+        const message = error instanceof Error ? error.message : "Could not delete the video.";
+        window.alert(message);
+      } finally {
+        updateQualityMenu();
+      }
     });
 
     timeline.addEventListener("pointerdown", () => {

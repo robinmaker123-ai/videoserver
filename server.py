@@ -100,6 +100,7 @@ def list_videos() -> list[dict[str, str]]:
                 "mime_type": mime_type or "application/octet-stream",
                 "url": f"/videos/{quote(file_path.name)}",
                 "download_url": f"/videos/{quote(file_path.name)}?download=1",
+                "delete_url": f"/api/videos/{quote(file_path.name)}",
                 "quality_label": detect_quality_label(file_path.name),
                 "variant_key": build_variant_key(file_path.name),
             }
@@ -152,6 +153,15 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/upload":
             self.handle_upload()
+            return
+
+        self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
+
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+
+        if parsed.path.startswith("/api/videos/"):
+            self.handle_delete_video(parsed.path.removeprefix("/api/videos/"))
             return
 
         self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
@@ -242,6 +252,35 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
                 "filename": filename,
                 "size_bytes": final_path.stat().st_size,
                 "video_dir": str(VIDEO_DIR),
+            },
+        )
+
+    def handle_delete_video(self, raw_name: str) -> None:
+        file_path = resolve_video_path(raw_name)
+        if file_path is None:
+            self.send_json(HTTPStatus.NOT_FOUND, {"error": "Video not found"})
+            return
+
+        try:
+            file_path.unlink()
+        except PermissionError:
+            self.send_json(
+                HTTPStatus.CONFLICT,
+                {"error": "Video is currently in use. Pause playback and try again."},
+            )
+            return
+        except OSError as exc:
+            self.send_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"error": f"Could not delete video: {exc}"},
+            )
+            return
+
+        self.send_json(
+            HTTPStatus.OK,
+            {
+                "deleted": True,
+                "filename": file_path.name,
             },
         )
 
