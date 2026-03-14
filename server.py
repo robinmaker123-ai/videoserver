@@ -15,6 +15,7 @@ TEMPLATE_PATH = BASE_DIR / "templates" / "index.html"
 ALLOWED_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi"}
 RANGE_PATTERN = re.compile(r"bytes=(\d*)-(\d*)")
 CHUNK_SIZE = 64 * 1024
+UPLOAD_CHUNK_SIZE = 1024 * 1024
 
 
 def get_video_dir() -> Path:
@@ -25,6 +26,13 @@ def get_video_dir() -> Path:
 
 
 VIDEO_DIR = get_video_dir()
+
+
+def normalize_filename(raw_name: str) -> str | None:
+    filename = Path(unquote(raw_name)).name.strip()
+    if not filename or filename in {".", ".."}:
+        return None
+    return filename
 
 
 def list_videos() -> list[dict[str, str]]:
@@ -49,7 +57,10 @@ def list_videos() -> list[dict[str, str]]:
 
 
 def resolve_video_path(raw_name: str) -> Path | None:
-    filename = unquote(raw_name)
+    filename = normalize_filename(raw_name)
+    if filename is None:
+        return None
+
     candidate = (VIDEO_DIR / filename).resolve()
 
     try:
@@ -83,6 +94,15 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
 
         self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
 
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+
+        if parsed.path == "/api/upload":
+            self.handle_upload()
+            return
+
+        self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
+
     def serve_index(self) -> None:
         if not TEMPLATE_PATH.is_file():
             self.send_error(HTTPStatus.NOT_FOUND, "Template not found")
@@ -107,6 +127,70 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def send_json(self, status: HTTPStatus, payload: dict[str, object]) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def handle_upload(self) -> None:
+        filename = normalize_filename(self.headers.get("X-Filename", ""))
+        if filename is None:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Missing or invalid filename")
+            return
+
+        if Path(filename).suffix.lower() not in ALLOWED_EXTENSIONS:
+            self.send_error(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported video format")
+            return
+
+        content_length_header = self.headers.get("Content-Length")
+        if content_length_header is None:
+            self.send_error(HTTPStatus.LENGTH_REQUIRED, "Missing Content-Length")
+            return
+
+        try:
+            content_length = int(content_length_header)
+        except ValueError:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
+            return
+
+        if content_length < 0:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
+            return
+
+        VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+        final_path = VIDEO_DIR / filename
+        temp_path = VIDEO_DIR / f".{filename}.uploading"
+        existed_before = final_path.exists()
+        remaining = content_length
+
+        try:
+            with temp_path.open("wb") as output_file:
+                while remaining > 0:
+                    chunk = self.rfile.read(min(UPLOAD_CHUNK_SIZE, remaining))
+                    if not chunk:
+                        raise ConnectionError("Upload ended before the request body was fully received")
+                    output_file.write(chunk)
+                    remaining -= len(chunk)
+
+            temp_path.replace(final_path)
+        except Exception as exc:
+            temp_path.unlink(missing_ok=True)
+            self.send_error(HTTPStatus.BAD_REQUEST, f"Upload failed: {exc}")
+            return
+
+        self.send_json(
+            HTTPStatus.OK if existed_before else HTTPStatus.CREATED,
+            {
+                "uploaded": True,
+                "filename": filename,
+                "size_bytes": final_path.stat().st_size,
+                "video_dir": str(VIDEO_DIR),
+            },
+        )
 
     def serve_video(self, raw_name: str) -> None:
         file_path = resolve_video_path(raw_name)

@@ -75,6 +75,55 @@
       line-height: 1.6;
     }
 
+    .upload-panel {
+      margin-top: 22px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .upload-picker {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 11px 16px;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: 999px;
+      background: rgba(15, 23, 32, 0.72);
+      color: var(--text);
+      cursor: pointer;
+      transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+    }
+
+    .upload-picker:hover,
+    .upload-picker:focus-within {
+      transform: translateY(-1px);
+      border-color: rgba(249, 115, 22, 0.45);
+      background: rgba(30, 41, 59, 0.92);
+    }
+
+    .upload-picker input {
+      position: absolute;
+      inline-size: 1px;
+      block-size: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .upload-button[disabled] {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .upload-status {
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+
     .layout {
       display: grid;
       grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
@@ -286,6 +335,14 @@
         Drop supported files into the <code>videos</code> folder and this page will pick them up automatically.
         For the best browser playback compatibility, MP4 files using H.264 video are the safest choice.
       </p>
+      <div class="upload-panel">
+        <label class="upload-picker" for="upload-input">
+          Choose video files
+          <input id="upload-input" type="file" accept=".mp4,.m4v,.mov,.mkv,.webm,.avi,video/*" multiple>
+        </label>
+        <button class="seek-button upload-button" id="upload-button" type="button" disabled>Upload selected</button>
+        <span class="upload-status" id="upload-status">No files selected.</span>
+      </div>
     </section>
 
     <main class="layout">
@@ -350,8 +407,12 @@
     const libraryCount = document.getElementById("library-count");
     const libraryEmpty = document.getElementById("library-empty");
     const sourcePath = document.getElementById("source-path");
+    const uploadInput = document.getElementById("upload-input");
+    const uploadButton = document.getElementById("upload-button");
+    const uploadStatus = document.getElementById("upload-status");
 
     let currentButtons = [];
+    let selectedFiles = [];
 
     function setSelectedVideo(video) {
       playerShell.classList.remove("hidden");
@@ -459,6 +520,72 @@
       }
     }
 
+    function updateUploadState(message) {
+      uploadStatus.textContent = message;
+      uploadButton.disabled = !selectedFiles.length;
+    }
+
+    function uploadFile(file) {
+      return new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open("POST", "/api/upload");
+        request.responseType = "json";
+        request.setRequestHeader("X-Filename", encodeURIComponent(file.name));
+
+        request.upload.addEventListener("progress", (event) => {
+          if (!event.lengthComputable) {
+            return;
+          }
+
+          const percent = Math.round((event.loaded / event.total) * 100);
+          uploadStatus.textContent = `Uploading ${file.name} (${percent}%)`;
+        });
+
+        request.addEventListener("load", () => {
+          if (request.status >= 200 && request.status < 300) {
+            resolve(request.response);
+            return;
+          }
+
+          reject(new Error(`Upload failed with status ${request.status}`));
+        });
+
+        request.addEventListener("error", () => {
+          reject(new Error("Network error during upload"));
+        });
+
+        request.send(file);
+      });
+    }
+
+    async function uploadSelectedFiles() {
+      if (!selectedFiles.length) {
+        return;
+      }
+
+      uploadButton.disabled = true;
+      uploadInput.disabled = true;
+
+      try {
+        for (let index = 0; index < selectedFiles.length; index += 1) {
+          const file = selectedFiles[index];
+          uploadStatus.textContent = `Preparing upload ${index + 1} of ${selectedFiles.length}: ${file.name}`;
+          await uploadFile(file);
+        }
+
+        const uploadedCount = selectedFiles.length;
+        selectedFiles = [];
+        uploadInput.value = "";
+        uploadStatus.textContent = `Uploaded ${uploadedCount} video${uploadedCount === 1 ? "" : "s"} successfully.`;
+        await loadLibrary();
+      } catch (error) {
+        uploadStatus.textContent = error instanceof Error ? error.message : "Upload failed.";
+      } finally {
+        uploadInput.disabled = false;
+        uploadButton.disabled = !selectedFiles.length;
+      }
+    }
+
     rewind30.addEventListener("click", () => {
       seekBy(-30);
     });
@@ -472,8 +599,25 @@
       });
     });
 
+    uploadInput.addEventListener("change", () => {
+      selectedFiles = Array.from(uploadInput.files || []);
+
+      if (!selectedFiles.length) {
+        updateUploadState("No files selected.");
+        return;
+      }
+
+      updateUploadState(`${selectedFiles.length} file${selectedFiles.length === 1 ? "" : "s"} selected.`);
+    });
+
+    uploadButton.addEventListener("click", () => {
+      uploadSelectedFiles().catch(() => {
+      });
+    });
+
     document.addEventListener("fullscreenchange", updateFullscreenButton);
     updateFullscreenButton();
+    updateUploadState("No files selected.");
 
     loadLibrary();
   </script>
