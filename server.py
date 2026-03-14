@@ -15,7 +15,7 @@ BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_PATH = BASE_DIR / "templates" / "index.html"
 ALLOWED_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi"}
 RANGE_PATTERN = re.compile(r"bytes=(\d*)-(\d*)")
-CHUNK_SIZE = 64 * 1024
+CHUNK_SIZE = 1024 * 1024
 UPLOAD_CHUNK_SIZE = 1024 * 1024
 
 
@@ -106,6 +106,7 @@ def resolve_video_path(raw_name: str) -> Path | None:
 
 class VideoRequestHandler(BaseHTTPRequestHandler):
     server_version = "VideoServer/1.0"
+    protocol_version = "HTTP/1.1"
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -281,7 +282,17 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
     def stream_file(self, file_path: Path, start: int, length: int) -> None:
         remaining = length
         with file_path.open("rb") as video_file:
-            video_file.seek(start)
+            # Use the socket fast path when available to reduce copy overhead for large media.
+            if hasattr(self.connection, "sendfile"):
+                try:
+                    self.wfile.flush()
+                    self.connection.sendfile(video_file, offset=start, count=length)
+                    return
+                except OSError:
+                    video_file.seek(start)
+            else:
+                video_file.seek(start)
+
             while remaining > 0:
                 chunk = video_file.read(min(CHUNK_SIZE, remaining))
                 if not chunk:
