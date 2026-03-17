@@ -23,6 +23,7 @@ VARIANT_TOKEN_PATTERN = re.compile(
     r"\b(?:2160p|1440p|1080p|720p|480p|360p|240p|4k|web[\s._-]?dl|web[\s._-]?rip|bluray|brrip|hdrip|hdtc|hdts|hdcam|hevc|x264|x265|h264|h265|aac|dd5[\s._-]?1|esub|multi[\s._-]?audio|dual[\s._-]?audio)\b",
     re.IGNORECASE,
 )
+SEARCH_TEXT_PATTERN = re.compile(r"[^\w]+", re.UNICODE)
 CHUNK_SIZE = 1024 * 1024
 UPLOAD_CHUNK_SIZE = 1024 * 1024
 VIDEO_DIR_ENV_OVERRIDE = os.environ.get("VIDEO_DIR")
@@ -150,12 +151,50 @@ def build_variant_key(file_name: str) -> str:
     return normalized_stem or Path(file_name).stem.lower()
 
 
-def list_videos() -> list[dict[str, str]]:
+def normalize_search_text(raw_text: str) -> str:
+    normalized_text = SEARCH_TEXT_PATTERN.sub(" ", raw_text.casefold())
+    return re.sub(r"\s+", " ", normalized_text).strip()
+
+
+def tokenize_search_query(raw_query: str) -> list[str]:
+    normalized_query = normalize_search_text(raw_query)
+    return normalized_query.split() if normalized_query else []
+
+
+def build_search_blob(file_name: str) -> str:
+    return " ".join(
+        part
+        for part in (
+            file_name.casefold(),
+            Path(file_name).stem.casefold(),
+            normalize_search_text(file_name),
+            build_variant_key(file_name),
+            detect_quality_label(file_name).casefold(),
+        )
+        if part
+    )
+
+
+def video_matches_query(file_name: str, search_tokens: list[str]) -> bool:
+    if not search_tokens:
+        return True
+
+    search_blob = build_search_blob(file_name)
+    return all(search_token in search_blob for search_token in search_tokens)
+
+
+def list_videos(search_query: str = "") -> tuple[list[dict[str, str]], int]:
     VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     videos = []
+    total_videos = 0
+    search_tokens = tokenize_search_query(search_query)
 
     for file_path in sorted(VIDEO_DIR.iterdir(), key=lambda path: path.name.lower()):
         if not file_path.is_file() or file_path.suffix.lower() not in ALLOWED_EXTENSIONS:
+            continue
+
+        total_videos += 1
+        if not video_matches_query(file_path.name, search_tokens):
             continue
 
         mime_type, _ = mimetypes.guess_type(file_path.name)
@@ -172,7 +211,7 @@ def list_videos() -> list[dict[str, str]]:
             }
         )
 
-    return videos
+    return videos, total_videos
 
 
 def resolve_video_path(raw_name: str) -> Path | None:
@@ -205,7 +244,7 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/videos":
-            self.serve_video_library()
+            self.serve_video_library(parsed.query)
             return
 
         if parsed.path.startswith("/videos/"):
@@ -252,11 +291,16 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
-    def serve_video_library(self) -> None:
+    def serve_video_library(self, query_string: str = "") -> None:
+        query_params = parse_qs(query_string)
+        raw_query = query_params.get("q", [""])[0].strip()
+        videos, total_videos = list_videos(raw_query)
         payload = json.dumps(
             {
-                "videos": list_videos(),
+                "videos": videos,
                 "video_dir": str(VIDEO_DIR),
+                "query": raw_query,
+                "total_videos": total_videos,
             }
         ).encode("utf-8")
         self.send_response(HTTPStatus.OK)

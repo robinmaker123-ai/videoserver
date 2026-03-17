@@ -39,4 +39,5 @@ The `videos/` folder is intentionally not tracked in git, so local media files d
 
 - Uploaded videos are saved into the active `VIDEO_DIR`.
 - The homepage can open the current library folder and switch to a different local folder path for faster imports.
+- The library now includes a search box, so you can filter videos by title, quality labels like `1080p`, or release tags such as `x265`.
 - GitHub itself will not store large local movie files from this project unless you use a separate storage solution.

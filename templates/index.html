@@ -849,6 +849,44 @@
       overflow-wrap: anywhere;
     }
 
+    .library-toolbar {
+      padding: 12px 22px 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .library-search {
+      flex: 1 1 220px;
+      min-width: 0;
+    }
+
+    .search-input {
+      width: 100%;
+      min-height: 44px;
+      padding: 12px 15px;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: 16px;
+      background: rgba(15, 23, 32, 0.72);
+      color: var(--text);
+      font: inherit;
+    }
+
+    .search-input::placeholder {
+      color: rgba(148, 163, 184, 0.78);
+    }
+
+    .search-input:focus {
+      outline: none;
+      border-color: rgba(249, 115, 22, 0.5);
+      box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.14);
+    }
+
+    .search-clear {
+      white-space: nowrap;
+    }
+
     .note {
       margin-top: 12px;
       color: var(--muted);
@@ -1012,6 +1050,11 @@
       .library {
         margin-left: 0;
         margin-right: 0;
+      }
+
+      .library-toolbar {
+        padding-left: 10px;
+        padding-right: 10px;
       }
 
       .library {
@@ -1199,6 +1242,20 @@
         </div>
 
         <p class="source-path" id="source-path"></p>
+        <div class="library-toolbar">
+          <label class="library-search" for="library-search">
+            <span class="sr-only">Search library</span>
+            <input
+              class="search-input"
+              id="library-search"
+              type="search"
+              placeholder="Search by title, quality, or release tag"
+              autocomplete="off"
+              spellcheck="false"
+            >
+          </label>
+          <button class="seek-button secondary-button search-clear hidden" id="clear-library-search" type="button">Clear</button>
+        </div>
 
         <div class="library" id="library"></div>
         <p class="empty-state hidden" id="library-empty">
@@ -1241,6 +1298,8 @@
     const libraryCount = document.getElementById("library-count");
     const libraryEmpty = document.getElementById("library-empty");
     const sourcePath = document.getElementById("source-path");
+    const librarySearchInput = document.getElementById("library-search");
+    const clearLibrarySearchButton = document.getElementById("clear-library-search");
     const uploadInput = document.getElementById("upload-input");
     const uploadButton = document.getElementById("upload-button");
     const uploadStatus = document.getElementById("upload-status");
@@ -1254,6 +1313,7 @@
     let libraryVideos = [];
     let currentVideoDir = "";
     let currentVideoName = "";
+    let currentSearchQuery = "";
     let currentVideo = null;
     let controlsHideTimeout = null;
     let isScrubbing = false;
@@ -1261,10 +1321,13 @@
     let usingNativeFullscreen = false;
     let pendingResumeTime = null;
     let pendingAutoplay = false;
+    let libraryRequestSequence = 0;
+    let librarySearchTimeout = null;
     const backendStartHint = "Start this app with `py server.py`. Static servers like `python -m http.server` will not support library actions.";
     const prefersTouchLayout = window.matchMedia("(pointer: coarse)").matches
       || window.matchMedia("(hover: none)").matches;
     const controlsHideDelay = prefersTouchLayout ? 3200 : 1800;
+    const defaultLibraryEmptyHtml = libraryEmpty.innerHTML;
 
     function formatTime(totalSeconds) {
       if (!Number.isFinite(totalSeconds) || totalSeconds < 0) {
@@ -1285,6 +1348,32 @@
 
     function setRangeFill(slider, percent) {
       slider.style.setProperty("--range-fill", `${percent}%`);
+    }
+
+    function getVideoCountLabel(count) {
+      return `${count} video${count === 1 ? "" : "s"}`;
+    }
+
+    function getLibraryCountLabel(visibleCount, totalCount, query) {
+      if (!totalCount) {
+        return "0 videos detected.";
+      }
+
+      if (!query) {
+        return `${getVideoCountLabel(visibleCount)} detected.`;
+      }
+
+      return `Showing ${visibleCount} of ${getVideoCountLabel(totalCount)}.`;
+    }
+
+    function restoreDefaultLibraryEmptyState() {
+      libraryEmpty.innerHTML = defaultLibraryEmptyHtml;
+    }
+
+    function updateSearchControls() {
+      const hasQuery = Boolean(librarySearchInput.value.trim());
+      clearLibrarySearchButton.classList.toggle("hidden", !hasQuery);
+      clearLibrarySearchButton.disabled = librarySearchInput.disabled || !hasQuery;
     }
 
     function qualityOrderValue(video) {
@@ -1639,28 +1728,43 @@
       updateVolumeUI();
     }
 
-    function renderLibrary(videos, videoDir) {
+    function renderLibrary(videos, videoDir, query = "", totalVideos = videos.length) {
       libraryVideos = videos;
       currentVideoDir = videoDir || "";
+      currentSearchQuery = query.trim();
       library.innerHTML = "";
       currentButtons = [];
       sourcePath.textContent = currentVideoDir ? `Source folder: ${currentVideoDir}` : "";
       if (document.activeElement !== libraryPathInput) {
         libraryPathInput.value = currentVideoDir;
       }
+      if (document.activeElement !== librarySearchInput) {
+        librarySearchInput.value = currentSearchQuery;
+      }
+      updateSearchControls();
       updateLibraryPathControls();
 
       if (!videos.length) {
-        libraryCount.textContent = "0 videos detected.";
+        libraryCount.textContent = getLibraryCountLabel(0, totalVideos, currentSearchQuery);
         libraryEmpty.classList.remove("hidden");
-        playerShell.classList.add("hidden");
-        playerEmpty.classList.remove("hidden");
-        resetPlayerUI();
+        if (!totalVideos) {
+          restoreDefaultLibraryEmptyState();
+          playerShell.classList.add("hidden");
+          playerEmpty.classList.remove("hidden");
+          resetPlayerUI();
+        } else {
+          libraryEmpty.textContent = `No videos match "${currentSearchQuery}". Try a different word or clear the search.`;
+          if (!currentVideo || !currentVideoName || !player.getAttribute("src")) {
+            playerShell.classList.add("hidden");
+            playerEmpty.classList.remove("hidden");
+          }
+        }
         return;
       }
 
+      restoreDefaultLibraryEmptyState();
       libraryEmpty.classList.add("hidden");
-      libraryCount.textContent = `${videos.length} video${videos.length === 1 ? "" : "s"} detected.`;
+      libraryCount.textContent = getLibraryCountLabel(videos.length, totalVideos, currentSearchQuery);
 
       const selectedVideo = videos.find((video) => video.name === currentVideoName) || null;
 
@@ -1693,13 +1797,29 @@
         return;
       }
 
+      if (currentVideo && currentVideoName && player.getAttribute("src")) {
+        currentButtons.forEach((button) => {
+          button.classList.remove("active");
+        });
+        return;
+      }
+
       setSelectedVideo(videos[0]);
       currentButtons[0].classList.add("active");
     }
 
-    async function loadLibrary() {
+    async function loadLibrary(searchQuery = currentSearchQuery) {
+      const trimmedQuery = searchQuery.trim();
+      currentSearchQuery = trimmedQuery;
+      libraryRequestSequence += 1;
+      const requestSequence = libraryRequestSequence;
+      updateSearchControls();
+
       try {
-        const response = await fetch("/api/videos");
+        const querySuffix = trimmedQuery
+          ? `?${new URLSearchParams({ q: trimmedQuery }).toString()}`
+          : "";
+        const response = await fetch(`/api/videos${querySuffix}`);
         if (!response.ok) {
           if (response.status === 404) {
             throw new Error(backendStartHint);
@@ -1708,8 +1828,19 @@
         }
 
         const data = await response.json();
-        renderLibrary(data.videos || [], data.video_dir || "");
+        if (requestSequence !== libraryRequestSequence) {
+          return;
+        }
+
+        const totalVideos = typeof data.total_videos === "number"
+          ? data.total_videos
+          : (data.videos || []).length;
+        renderLibrary(data.videos || [], data.video_dir || "", data.query || trimmedQuery, totalVideos);
       } catch (error) {
+        if (requestSequence !== libraryRequestSequence) {
+          return;
+        }
+
         libraryVideos = [];
         currentVideoDir = "";
         library.innerHTML = "";
@@ -1719,7 +1850,11 @@
         if (document.activeElement !== libraryPathInput) {
           libraryPathInput.value = "";
         }
+        if (document.activeElement !== librarySearchInput) {
+          librarySearchInput.value = currentSearchQuery;
+        }
         updateLibraryPathControls();
+        updateSearchControls();
         libraryEmpty.classList.remove("hidden");
         libraryEmpty.textContent = fallbackMessage;
         playerShell.classList.add("hidden");
@@ -1834,6 +1969,14 @@
       const hasDraftPath = Boolean(libraryPathInput.value.trim());
       setLibraryPathButton.disabled = libraryPathInput.disabled || !hasDraftPath;
       openLibraryFolderButton.disabled = Boolean(libraryPathInput.disabled) || !currentVideoDir;
+    }
+
+    function triggerLibrarySearch(delayMs = 180) {
+      window.clearTimeout(librarySearchTimeout);
+      librarySearchTimeout = window.setTimeout(() => {
+        loadLibrary(librarySearchInput.value).catch(() => {
+        });
+      }, delayMs);
     }
 
     function uploadFile(file) {
@@ -2222,6 +2365,33 @@
       });
     });
 
+    librarySearchInput.addEventListener("input", () => {
+      updateSearchControls();
+      triggerLibrarySearch();
+    });
+
+    librarySearchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        triggerLibrarySearch(0);
+        return;
+      }
+
+      if (event.key === "Escape" && librarySearchInput.value) {
+        event.preventDefault();
+        librarySearchInput.value = "";
+        updateSearchControls();
+        triggerLibrarySearch(0);
+      }
+    });
+
+    clearLibrarySearchButton.addEventListener("click", () => {
+      librarySearchInput.value = "";
+      librarySearchInput.focus();
+      updateSearchControls();
+      triggerLibrarySearch(0);
+    });
+
     const syncFullscreenUI = () => {
       updateFullscreenButton();
       if (!isPlayerFullscreen()) {
@@ -2247,6 +2417,7 @@
     updateFullscreenButton();
     updateUploadState("No files selected.");
     updatePathStatus("Tip: set a folder once to avoid slow browser uploads for large files.");
+    updateSearchControls();
     updateLibraryPathControls();
 
     loadLibrary();
