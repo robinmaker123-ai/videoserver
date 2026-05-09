@@ -4,6 +4,7 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -95,9 +96,13 @@ def open_directory(path: Path) -> None:
         return
 
     if sys.platform == "darwin":
+        if shutil.which("open") is None:
+            raise FileNotFoundError("No desktop folder opener is available on this system.")
         subprocess.Popen(["open", str(path)])
         return
 
+    if shutil.which("xdg-open") is None:
+        raise FileNotFoundError("No desktop folder opener is available on this system.")
     subprocess.Popen(["xdg-open", str(path)])
 
 
@@ -379,6 +384,9 @@ class VideoRequestHandler(BaseHTTPRequestHandler):
 
         try:
             open_directory(VIDEO_DIR)
+        except FileNotFoundError as exc:
+            self.send_json(HTTPStatus.NOT_IMPLEMENTED, {"error": str(exc)})
+            return
         except OSError as exc:
             self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Could not open folder: {exc}"})
             return
