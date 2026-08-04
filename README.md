@@ -1,43 +1,97 @@
-# videoserver
+<p align="center">
+  <img src="docs/assets/videoserver-banner.svg" alt="VideoServer — local-first Python media streaming" width="100%" />
+</p>
 
-Simple local video streaming server built with Python's standard library.
+<p align="center">
+  <img src="https://img.shields.io/badge/status-active-087D70?style=for-the-badge" alt="Status: active" />
+  <img src="https://img.shields.io/badge/runtime-Python-1F4D3F?style=for-the-badge&logo=python" alt="Python" />
+  <img src="https://img.shields.io/badge/dependencies-standard%20library-263238?style=for-the-badge" alt="Python standard library" />
+  <img src="https://img.shields.io/badge/design-local--first-0B6B60?style=for-the-badge" alt="Local-first" />
+</p>
 
-## Run
+<h1 align="center">VideoServer</h1>
+<p align="center"><strong>A lightweight local video library and streaming server powered by Python's standard library.</strong></p>
+
+VideoServer lets a user browse and stream local media through a web interface without uploading the media collection to GitHub or depending on a large framework stack.
+
+## Highlights
+
+- Lightweight Python server with no external runtime dependencies
+- Local-first media library
+- Browser-based upload support
+- Instant switching between local video folders
+- Search by title, quality labels and release tags
+- Support for common desktop video formats
+- Repository code stays separate from private media files
+
+## How it works
+
+```mermaid
+flowchart LR
+    B[Web Browser] -->|Browse / Search / Upload| S[Python VideoServer]
+    S -->|Read library| D[Active VIDEO_DIR]
+    D --> V[Local Video Files]
+    S -->|HTTP media response| B
+```
+
+## Quick start
+
+### 1. Run with the default library
 
 ```powershell
 python server.py
 ```
 
-The app starts on `http://127.0.0.1:5000` by default.
+The server starts at:
 
-To stream videos from another folder on your machine:
+```text
+http://127.0.0.1:5000
+```
+
+### 2. Stream from another folder
+
+PowerShell:
 
 ```powershell
 $env:VIDEO_DIR="D:\Movies"
 python server.py
 ```
 
-## Add videos
+You can also paste a folder path such as `D:\Movies` into the web interface and switch the active library without waiting for a browser upload.
 
-This GitHub repo contains only the app code. It does not include your actual media files.
+## Adding media
 
-Place supported files in the local `videos/` folder, use the upload button in the web UI, or point `VIDEO_DIR` to your existing movie folder, then refresh the page.
-You can also paste a folder path such as `D:\Movies` into the web UI and switch the library instantly without waiting for a browser upload.
+Use any of these methods:
 
-Supported extensions:
+1. Place supported files inside the local `videos/` folder.
+2. Upload files through the web interface.
+3. Set `VIDEO_DIR` to an existing media folder.
+4. Enter a folder path directly in the interface.
 
-- `.mp4`
-- `.m4v`
-- `.mov`
-- `.mkv`
-- `.webm`
-- `.avi`
+The `videos/` folder is intentionally excluded from Git tracking, so local media files are not committed to the repository.
 
-The `videos/` folder is intentionally not tracked in git, so local media files do not get uploaded to GitHub.
+## Supported formats
 
-## Notes
+| Format | Extension |
+|---|---|
+| MPEG-4 | `.mp4`, `.m4v` |
+| QuickTime | `.mov` |
+| Matroska | `.mkv` |
+| WebM | `.webm` |
+| AVI | `.avi` |
 
-- Uploaded videos are saved into the active `VIDEO_DIR`.
-- The homepage can open the current library folder and switch to a different local folder path for faster imports.
-- The library now includes a search box, so you can filter videos by title, quality labels like `1080p`, or release tags such as `x265`.
-- GitHub itself will not store large local movie files from this project unless you use a separate storage solution.
+## Library behavior
+
+- Uploaded videos are stored in the active `VIDEO_DIR`.
+- The current library folder can be opened from the homepage.
+- The active folder can be changed from the interface.
+- Search supports titles, quality terms such as `1080p`, and release tags such as `x265`.
+- Actual media files remain local unless the user deliberately uploads them elsewhere.
+
+## Privacy model
+
+VideoServer is designed around local ownership of media. The public repository contains the application code, not the user's movie or video collection.
+
+---
+
+<p align="center"><strong>Designed and engineered by Shyamraj.</strong></p>
